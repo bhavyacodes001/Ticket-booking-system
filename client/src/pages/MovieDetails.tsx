@@ -1,0 +1,623 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { api } from '../utils/api';
+
+type Movie = {
+  _id: string;
+  title: string;
+  description: string;
+  genre: string[];
+  poster: string;
+  releaseDate: string;
+  duration: number;
+  rating: string;
+  imdbRating?: number;
+  language: string;
+  subtitles?: string[];
+  formattedDuration?: string;
+  cast?: { name: string }[];
+  director?: string;
+  trailer?: string;
+};
+
+const MovieDetails: React.FC = () => {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [movie, setMovie] = useState<Movie | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'overview' | 'cast' | 'reviews'>('overview');
+  const [showTrailer, setShowTrailer] = useState(false);
+  const heroRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const fetchMovie = async () => {
+      try {
+        setLoading(true);
+        const { data } = await api.get(`/movies/${id}`);
+        setMovie(data.movie);
+      } catch (err: any) {
+        setError(err.response?.data?.message || 'Failed to load movie');
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (id) fetchMovie();
+  }, [id]);
+
+  useEffect(() => {
+    const el = heroRef.current;
+    if (!el) return;
+    
+    const handleMove = (e: MouseEvent) => {
+      const rect = el.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width - 0.5;
+      const y = (e.clientY - rect.top) / rect.height - 0.5;
+      el.style.transform = `perspective(1000px) rotateY(${x * 3}deg) rotateX(${y * -3}deg) scale(1.02)`;
+    };
+    
+    const handleLeave = () => {
+      el.style.transform = 'perspective(1000px) rotateY(0deg) rotateX(0deg) scale(1)';
+    };
+    
+    el.addEventListener('mousemove', handleMove);
+    el.addEventListener('mouseleave', handleLeave);
+    return () => {
+      el.removeEventListener('mousemove', handleMove);
+      el.removeEventListener('mouseleave', handleLeave);
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div style={{ 
+        minHeight: '100vh', 
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'white'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ 
+            fontSize: '64px', 
+            marginBottom: '20px',
+            animation: 'pulse 2s infinite'
+          }}>🎬</div>
+          <h2 style={{ margin: 0, fontSize: '24px', fontWeight: '300' }}>Loading Movie Details...</h2>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ 
+        minHeight: '100vh', 
+        background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'white',
+        textAlign: 'center',
+        padding: '20px'
+      }}>
+        <div>
+          <div style={{ fontSize: '64px', marginBottom: '20px' }}>😞</div>
+          <h2 style={{ margin: '0 0 20px 0' }}>Oops! Something went wrong</h2>
+          <p style={{ marginBottom: '30px', opacity: 0.9 }}>{error}</p>
+          <button
+            onClick={() => navigate('/movies')}
+            style={{
+              background: 'rgba(255,255,255,0.2)',
+              color: 'white',
+              border: '2px solid white',
+              padding: '12px 30px',
+              borderRadius: '25px',
+              fontSize: '16px',
+              cursor: 'pointer',
+              transition: 'all 0.3s ease'
+            }}
+          >
+            Back to Movies
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!movie) return null;
+
+  return (
+    <div style={{ padding: 0, background: '#0a0a0a', minHeight: '100vh' }}>
+      {/* Cinematic Hero Section */}
+      <div
+        ref={heroRef}
+        style={{
+          position: 'relative',
+          height: '100vh',
+          background: `
+            linear-gradient(45deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.8) 100%),
+            linear-gradient(rgba(0,0,0,0.3), rgba(0,0,0,0.7)),
+            url(${movie.poster})
+          `,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundAttachment: 'fixed',
+          display: 'flex',
+          alignItems: 'center',
+          transition: 'transform 0.3s ease',
+          overflow: 'hidden'
+        }}
+      >
+        {/* Animated Background Particles */}
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: `
+            radial-gradient(circle at 20% 80%, rgba(120,119,198,0.3) 0%, transparent 50%),
+            radial-gradient(circle at 80% 20%, rgba(255,119,198,0.3) 0%, transparent 50%),
+            radial-gradient(circle at 40% 40%, rgba(120,200,255,0.2) 0%, transparent 50%)
+          `,
+          animation: 'float 6s ease-in-out infinite'
+        }} />
+
+        {/* Back Button */}
+        <button
+          onClick={() => navigate(-1)}
+          style={{
+            position: 'absolute',
+            top: '30px',
+            left: '30px',
+            background: 'rgba(255,255,255,0.1)',
+            border: '2px solid rgba(255,255,255,0.3)',
+            color: 'white',
+            padding: '12px 20px',
+            borderRadius: '50px',
+            fontSize: '16px',
+            cursor: 'pointer',
+            backdropFilter: 'blur(10px)',
+            transition: 'all 0.3s ease',
+            zIndex: 10
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
+        >
+          ← Back
+        </button>
+
+        {/* Main Content */}
+        <div style={{ 
+          maxWidth: '1400px', 
+          margin: '0 auto', 
+          padding: '0 40px',
+          display: 'grid',
+          gridTemplateColumns: '1fr 2fr',
+          gap: '60px',
+          alignItems: 'center',
+          width: '100%'
+        }}>
+          {/* Movie Poster */}
+          <div style={{
+            position: 'relative',
+            transform: 'perspective(1000px) rotateY(-15deg)',
+            transition: 'transform 0.6s ease'
+          }}>
+            <div style={{
+              background: 'linear-gradient(145deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))',
+              padding: '20px',
+              borderRadius: '20px',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255,255,255,0.1)'
+            }}>
+              <img 
+                src={movie.poster}
+                alt={movie.title}
+                style={{ 
+                  width: '100%', 
+                  height: '600px', 
+                  objectFit: 'cover',
+                  borderRadius: '15px',
+                  boxShadow: '0 25px 50px rgba(0,0,0,0.5)'
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Movie Info */}
+          <div style={{ color: 'white', zIndex: 2 }}>
+            <div style={{
+              background: 'linear-gradient(145deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '25px',
+              padding: '40px'
+            }}>
+              {/* Title */}
+              <h1 style={{ 
+                margin: '0 0 20px 0', 
+                fontSize: '48px',
+                fontWeight: 'bold',
+                background: 'linear-gradient(135deg, #fff 0%, #f0f0f0 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                textShadow: '2px 2px 4px rgba(0,0,0,0.5)',
+                lineHeight: '1.1'
+              }}>
+                {movie.title}
+              </h1>
+
+              {/* Rating & Genre Tags */}
+              <div style={{ 
+                display: 'flex', 
+                gap: '12px', 
+                marginBottom: '25px', 
+                flexWrap: 'wrap' 
+              }}>
+                <span style={{ 
+                  background: 'linear-gradient(135deg, #ff6b6b, #ee5a24)',
+                  padding: '8px 16px', 
+                  borderRadius: '20px',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  boxShadow: '0 4px 15px rgba(238,90,36,0.4)'
+                }}>
+                  {movie.rating}
+                </span>
+                <span style={{ 
+                  background: 'linear-gradient(135deg, #feca57, #ff9ff3)',
+                  padding: '8px 16px', 
+                  borderRadius: '20px',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  color: '#333',
+                  boxShadow: '0 4px 15px rgba(254,202,87,0.4)'
+                }}>
+                  ⭐ {movie.imdbRating?.toFixed(1) ?? 'N/A'}
+                </span>
+                {movie.genre?.map((g, i) => (
+                  <span key={i} style={{ 
+                    background: 'linear-gradient(135deg, #5f27cd, #00d2d3)',
+                    padding: '8px 16px', 
+                    borderRadius: '20px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    boxShadow: '0 4px 15px rgba(95,39,205,0.4)'
+                  }}>
+                    {g}
+                  </span>
+                ))}
+              </div>
+
+              {/* Description */}
+              <p style={{ 
+                fontSize: '18px', 
+                lineHeight: '1.7', 
+                marginBottom: '30px',
+                color: 'rgba(255,255,255,0.9)'
+              }}>
+                {movie.description}
+              </p>
+
+              {/* Movie Details */}
+              <div style={{ 
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '20px',
+                marginBottom: '35px'
+              }}>
+                <div style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  padding: '15px',
+                  borderRadius: '15px',
+                  border: '1px solid rgba(255,255,255,0.1)'
+                }}>
+                  <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.6)', marginBottom: '5px' }}>Duration</div>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
+                    {Math.floor(movie.duration/60)}h {movie.duration%60}m
+                  </div>
+                </div>
+                <div style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  padding: '15px',
+                  borderRadius: '15px',
+                  border: '1px solid rgba(255,255,255,0.1)'
+                }}>
+                  <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.6)', marginBottom: '5px' }}>Release Date</div>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
+                    {new Date(movie.releaseDate).toLocaleDateString()}
+                  </div>
+                </div>
+                <div style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  padding: '15px',
+                  borderRadius: '15px',
+                  border: '1px solid rgba(255,255,255,0.1)'
+                }}>
+                  <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.6)', marginBottom: '5px' }}>Language</div>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{movie.language}</div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => navigate(`/showtimes?movie=${movie._id}`)}
+                  style={{
+                    background: 'linear-gradient(135deg, #e50914, #b20710)',
+                    color: 'white',
+                    border: 'none',
+                    padding: '18px 35px',
+                    borderRadius: '50px',
+                    fontSize: '18px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    boxShadow: '0 8px 25px rgba(229,9,20,0.4)',
+                    transition: 'all 0.3s ease',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-3px)';
+                    e.currentTarget.style.boxShadow = '0 12px 35px rgba(229,9,20,0.6)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = '0 8px 25px rgba(229,9,20,0.4)';
+                  }}
+                >
+                  🎫 Book Tickets
+                </button>
+                
+                <button
+                  onClick={() => setShowTrailer(true)}
+                  style={{
+                    background: 'rgba(255,255,255,0.1)',
+                    color: 'white',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    padding: '16px 30px',
+                    borderRadius: '50px',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    backdropFilter: 'blur(10px)',
+                    transition: 'all 0.3s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  ▶️ Watch Trailer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Additional Content Section */}
+      <div style={{ 
+        background: 'linear-gradient(180deg, #0a0a0a 0%, #1a1a1a 100%)',
+        padding: '80px 40px',
+        position: 'relative'
+      }}>
+        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+          {/* Tab Navigation */}
+          <div style={{ 
+            display: 'flex', 
+            gap: '30px', 
+            marginBottom: '50px',
+            justifyContent: 'center'
+          }}>
+            {[
+              { id: 'overview', label: 'Overview', icon: '📖' },
+              { id: 'cast', label: 'Cast & Crew', icon: '🎭' },
+              { id: 'reviews', label: 'Reviews', icon: '⭐' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                style={{
+                  background: activeTab === tab.id 
+                    ? 'linear-gradient(135deg, #e50914, #b20710)' 
+                    : 'rgba(255,255,255,0.1)',
+                  color: 'white',
+                  border: activeTab === tab.id ? 'none' : '2px solid rgba(255,255,255,0.2)',
+                  padding: '15px 25px',
+                  borderRadius: '25px',
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease',
+                  backdropFilter: 'blur(10px)'
+                }}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab Content */}
+          <div style={{
+            background: 'rgba(255,255,255,0.05)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '25px',
+            padding: '40px',
+            minHeight: '300px'
+          }}>
+            {activeTab === 'overview' && (
+              <div style={{ color: 'white' }}>
+                <h3 style={{ fontSize: '28px', marginBottom: '20px', color: '#e50914' }}>
+                  📖 Movie Overview
+                </h3>
+                <p style={{ fontSize: '18px', lineHeight: '1.8', marginBottom: '30px' }}>
+                  {movie.description}
+                </p>
+                {movie.director && (
+                  <div style={{ marginBottom: '20px' }}>
+                    <strong style={{ color: '#feca57' }}>Director:</strong> {movie.director}
+                  </div>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
+                  <div>
+                    <strong style={{ color: '#feca57' }}>Genres:</strong><br/>
+                    {movie.genre?.join(', ')}
+                  </div>
+                  <div>
+                    <strong style={{ color: '#feca57' }}>Rating:</strong><br/>
+                    {movie.rating} • ⭐ {movie.imdbRating?.toFixed(1)}/10
+                  </div>
+                  <div>
+                    <strong style={{ color: '#feca57' }}>Runtime:</strong><br/>
+                    {Math.floor(movie.duration/60)}h {movie.duration%60}m
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'cast' && (
+              <div style={{ color: 'white' }}>
+                <h3 style={{ fontSize: '28px', marginBottom: '30px', color: '#e50914' }}>
+                  🎭 Cast & Crew
+                </h3>
+                {movie.cast && movie.cast.length > 0 ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+                    {movie.cast.map((actor, index) => (
+                      <div key={index} style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        padding: '20px',
+                        borderRadius: '15px',
+                        textAlign: 'center',
+                        border: '1px solid rgba(255,255,255,0.1)'
+                      }}>
+                        <div style={{ 
+                          width: '80px', 
+                          height: '80px', 
+                          background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '30px',
+                          margin: '0 auto 15px'
+                        }}>
+                          🎭
+                        </div>
+                        <div style={{ fontWeight: 'bold', fontSize: '16px' }}>{actor.name}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ fontSize: '18px', textAlign: 'center', color: 'rgba(255,255,255,0.7)' }}>
+                    Cast information not available for this movie.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'reviews' && (
+              <div style={{ color: 'white', textAlign: 'center' }}>
+                <h3 style={{ fontSize: '28px', marginBottom: '30px', color: '#e50914' }}>
+                  ⭐ Reviews & Ratings
+                </h3>
+                <div style={{ fontSize: '64px', marginBottom: '20px' }}>⭐</div>
+                <div style={{ fontSize: '48px', fontWeight: 'bold', marginBottom: '10px' }}>
+                  {movie.imdbRating?.toFixed(1) || 'N/A'}/10
+                </div>
+                <p style={{ fontSize: '18px', color: 'rgba(255,255,255,0.7)', marginBottom: '30px' }}>
+                  Based on IMDb ratings
+                </p>
+                <div style={{ fontSize: '18px', color: 'rgba(255,255,255,0.6)' }}>
+                  Detailed reviews coming soon...
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Trailer Modal */}
+      {showTrailer && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.9)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          backdropFilter: 'blur(10px)'
+        }}>
+          <div style={{ position: 'relative', maxWidth: '90%', maxHeight: '90%' }}>
+            <button
+              onClick={() => setShowTrailer(false)}
+              style={{
+                position: 'absolute',
+                top: '-50px',
+                right: '0',
+                background: 'rgba(255,255,255,0.1)',
+                color: 'white',
+                border: 'none',
+                padding: '10px 15px',
+                borderRadius: '50%',
+                fontSize: '20px',
+                cursor: 'pointer',
+                zIndex: 1001
+              }}
+            >
+              ✕
+            </button>
+            <div style={{
+              width: '800px',
+              height: '450px',
+              background: 'linear-gradient(135deg, #667eea, #764ba2)',
+              borderRadius: '15px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontSize: '24px'
+            }}>
+              🎬 Trailer Coming Soon
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSS Animations */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.1); }
+        }
+        @keyframes float {
+          0%, 100% { transform: translateY(0px) rotate(0deg); }
+          33% { transform: translateY(-10px) rotate(1deg); }
+          66% { transform: translateY(-5px) rotate(-1deg); }
+        }
+      `}</style>
+    </div>
+  );
+};
+
+export default MovieDetails;
+
+
