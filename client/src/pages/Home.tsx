@@ -27,6 +27,7 @@ const Home: React.FC = () => {
   const [featuredMovies, setFeaturedMovies] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
+  const [activeFilter, setActiveFilter] = useState<string>('All');
 
   useEffect(() => {
     const fetchMovies = async () => {
@@ -52,7 +53,9 @@ const Home: React.FC = () => {
           poster: movie.poster_url || `https://image.tmdb.org/t/p/w500${movie.poster_path}` || 'https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?q=80&w=1200&auto=format&fit=crop',
           imdbRating: movie.vote_average || 0,
           rating: 'PG-13',
-          status: 'now_showing'
+          status: 'now_showing',
+          language: 'English',
+          releaseDate: movie.release_date || new Date().toISOString()
         }));
         
         // Combine and de-duplicate by title to avoid repeats
@@ -308,28 +311,23 @@ const Home: React.FC = () => {
 
         {/* Filter Tabs */}
         <div style={{ display: 'flex', gap: '15px', marginBottom: '30px', flexWrap: 'wrap' }}>
-          {[
-            { label: '🔽 Filters', active: false },
-            { label: 'Hindi', active: false },
-            { label: 'English', active: false },
-            { label: 'New Releases', active: false },
-            { label: '3D', active: false }
-          ].map((filter, index) => (
+          {['All', 'Hindi', 'English', 'New Releases'].map((label) => (
             <button
-              key={filter.label}
+              key={label}
+              onClick={() => setActiveFilter(label)}
               style={{
                 padding: '8px 16px',
                 border: '1px solid #ddd',
                 borderRadius: '20px',
-                background: filter.active ? '#007bff' : 'white',
-                color: filter.active ? 'white' : '#666',
+                background: activeFilter === label ? '#e50914' : 'white',
+                color: activeFilter === label ? 'white' : '#666',
                 fontSize: '14px',
                 cursor: 'pointer',
                 fontWeight: '500',
                 transition: 'all 0.2s'
               }}
             >
-              {filter.label}
+              {label}
             </button>
           ))}
         </div>
@@ -340,7 +338,21 @@ const Home: React.FC = () => {
           gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
           gap: '20px'
         }}>
-          {movies.slice(0, 20).map((movie) => {
+          {movies
+            .filter((m) => {
+              if (activeFilter === 'All') return true;
+              if (activeFilter === 'Hindi') return (m.language || '').toLowerCase() === 'hindi';
+              if (activeFilter === 'English') return (m.language || '').toLowerCase() === 'english';
+              if (activeFilter === 'New Releases') {
+                const d = new Date(m.releaseDate || Date.now());
+                const cutoff = new Date();
+                cutoff.setMonth(cutoff.getMonth() - 2);
+                return d >= cutoff;
+              }
+              return true;
+            })
+            .slice(0, 20)
+            .map((movie) => {
             const isMongoId = typeof movie._id === 'string' && /^[a-f0-9]{24}$/i.test(movie._id);
             return (
             <div 
