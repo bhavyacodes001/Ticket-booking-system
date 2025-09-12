@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../utils/api';
 
 type Movie = {
@@ -13,11 +14,18 @@ type Movie = {
 };
 
 const Movies: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [movies, setMovies] = useState<Movie[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [loadingProgress, setLoadingProgress] = useState<string>('');
+
+  // Read search query from URL parameters on component mount
+  useEffect(() => {
+    const urlSearchQuery = searchParams.get('search') || '';
+    setSearchQuery(urlSearchQuery);
+  }, [searchParams]);
 
   useEffect(() => {
     loadMovies(searchQuery);
@@ -78,7 +86,12 @@ const Movies: React.FC = () => {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    loadMovies(searchQuery);
+    // Update URL parameters to reflect the search
+    if (searchQuery.trim()) {
+      setSearchParams({ search: searchQuery.trim() });
+    } else {
+      setSearchParams({});
+    }
   };
 
   return (
@@ -86,12 +99,32 @@ const Movies: React.FC = () => {
       <h1 style={{ 
         fontSize: '32px', 
         fontWeight: 'bold', 
-        margin: '0 0 30px 0',
+        margin: '0 0 10px 0',
         color: '#333',
         textAlign: 'center'
       }}>
-        Movies
+        {searchQuery ? `Search Results for "${searchQuery}"` : 'Popular Movies'}
       </h1>
+      {searchQuery && (
+        <p style={{ 
+          textAlign: 'center', 
+          color: '#666', 
+          fontSize: '16px',
+          margin: '0 0 30px 0'
+        }}>
+          Searching TMDB database for movies matching "{searchQuery}"
+        </p>
+      )}
+      {!searchQuery && (
+        <p style={{ 
+          textAlign: 'center', 
+          color: '#666', 
+          fontSize: '16px',
+          margin: '0 0 30px 0'
+        }}>
+          Discover trending and popular movies from around the world
+        </p>
+      )}
 
       {/* Search Bar */}
       <form onSubmit={handleSearch} style={{ marginBottom: '30px' }}>
@@ -126,6 +159,28 @@ const Movies: React.FC = () => {
             >
               Search
             </button>
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setError('');
+                  setSearchParams({});
+                }}
+                style={{
+                  background: '#666',
+                  color: 'white',
+                  border: 'none',
+                  padding: '12px 20px',
+                  borderRadius: '25px',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer'
+                }}
+              >
+                Clear
+              </button>
+            )}
           </div>
         </div>
       </form>
@@ -180,7 +235,11 @@ const Movies: React.FC = () => {
                 <li>Try searching for actor names</li>
               </ul>
               <button 
-                onClick={() => {setSearchQuery(''); setError('');}}
+                onClick={() => {
+                  setSearchQuery(''); 
+                  setError('');
+                  setSearchParams({}); // Clear URL search parameters
+                }}
                 style={{
                   background: '#e50914',
                   color: 'white',
