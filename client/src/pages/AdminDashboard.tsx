@@ -28,6 +28,13 @@ type MovieRow = {
   releaseDate: string;
   rating: string;
   isActive: boolean;
+  description?: string;
+  director?: string;
+  duration?: number;
+  poster?: string;
+  trailer?: string;
+  basePrice?: number;
+  language?: string;
 };
 
 type BookingRow = {
@@ -218,7 +225,7 @@ const AdminDashboard: React.FC = () => {
         <UsersTab users={users} search={userSearch} setSearch={setUserSearch}
           page={userPage} setPage={setUserPage} total={userTotal} onRoleChange={handleRoleChange} />
       )}
-      {activeTab === 'movies' && <MoviesTab movies={movies} />}
+      {activeTab === 'movies' && <MoviesTab movies={movies} onRefresh={fetchMovies} />}
       {activeTab === 'bookings' && (
         <BookingsTab bookings={bookings} page={bookingPage} setPage={setBookingPage} total={bookingTotal} />
       )}
@@ -324,13 +331,156 @@ function UsersTab({ users, search, setSearch, page, setPage, total, onRoleChange
   );
 }
 
-function MoviesTab({ movies }: { movies: MovieRow[] }) {
+function MoviesTab({ movies, onRefresh }: { movies: MovieRow[]; onRefresh: () => void }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editingMovie, setEditingMovie] = useState<MovieRow | null>(null);
+  const [form, setForm] = useState({ title: '', description: '', genre: '', director: '', duration: '', rating: '', releaseDate: '', poster: '', trailer: '', basePrice: '', language: 'en' });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const resetForm = () => {
+    setForm({ title: '', description: '', genre: '', director: '', duration: '', rating: '', releaseDate: '', poster: '', trailer: '', basePrice: '', language: 'en' });
+    setEditingMovie(null);
+    setShowForm(false);
+    setMsg('');
+  };
+
+  const openEdit = (m: MovieRow) => {
+    setEditingMovie(m);
+    setForm({
+      title: m.title || '', description: m.description || '', genre: (m.genre || []).join(', '),
+      director: m.director || '', duration: String(m.duration || ''),
+      rating: m.rating || '', releaseDate: m.releaseDate ? m.releaseDate.slice(0, 10) : '',
+      poster: m.poster || '', trailer: m.trailer || '',
+      basePrice: String(m.basePrice || ''), language: m.language || 'en'
+    });
+    setShowForm(true);
+    setMsg('');
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setMsg('');
+    const payload = {
+      title: form.title, description: form.description,
+      genre: form.genre.split(',').map(g => g.trim()).filter(Boolean),
+      director: form.director, duration: parseInt(form.duration) || 120,
+      rating: form.rating, releaseDate: form.releaseDate,
+      poster: form.poster, trailer: form.trailer,
+      basePrice: parseFloat(form.basePrice) || 200, language: form.language
+    };
+    try {
+      if (editingMovie) {
+        await api.put(`/movies/${editingMovie._id}`, payload);
+        setMsg('Movie updated!');
+      } else {
+        await api.post('/movies', payload);
+        setMsg('Movie created!');
+      }
+      onRefresh();
+      setTimeout(resetForm, 1000);
+    } catch (err: any) {
+      setMsg(`Error: ${err.response?.data?.message || 'Failed to save movie'}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string, title: string) => {
+    if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/movies/${id}`);
+      onRefresh();
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to delete movie');
+    }
+  };
+
+  const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box' };
+
   return (
     <div style={{ background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-      <h3 style={{ margin: '0 0 16px', fontSize: 18 }}>Movie Catalog ({movies.length})</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 18 }}>Movie Catalog ({movies.length})</h3>
+        <button onClick={() => { resetForm(); setShowForm(true); }}
+          style={{ padding: '8px 20px', background: 'linear-gradient(135deg, #e50914, #b20710)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          + Add Movie
+        </button>
+      </div>
+
+      {showForm && (
+        <div style={{ background: '#f8f9fa', borderRadius: 10, padding: 20, marginBottom: 20, border: '1px solid #e0e0e0' }}>
+          <h4 style={{ margin: '0 0 16px', fontSize: 16 }}>{editingMovie ? 'Edit Movie' : 'Add New Movie'}</h4>
+          {msg && <div style={{ padding: '8px 14px', borderRadius: 6, marginBottom: 12, fontSize: 13, fontWeight: 600, background: msg.startsWith('Error') ? '#f8d7da' : '#d4edda', color: msg.startsWith('Error') ? '#721c24' : '#155724' }}>{msg}</div>}
+          <form onSubmit={handleSave}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Title *</label>
+                <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} required style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Director</label>
+                <input value={form.director} onChange={e => setForm({ ...form, director: e.target.value })} style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Genre (comma separated)</label>
+                <input value={form.genre} onChange={e => setForm({ ...form, genre: e.target.value })} placeholder="Action, Thriller, Drama" style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Rating</label>
+                <input value={form.rating} onChange={e => setForm({ ...form, rating: e.target.value })} placeholder="PG-13, R, etc." style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Duration (minutes)</label>
+                <input type="number" value={form.duration} onChange={e => setForm({ ...form, duration: e.target.value })} placeholder="120" style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Release Date *</label>
+                <input type="date" value={form.releaseDate} onChange={e => setForm({ ...form, releaseDate: e.target.value })} required style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Base Price (₹)</label>
+                <input type="number" value={form.basePrice} onChange={e => setForm({ ...form, basePrice: e.target.value })} placeholder="200" style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Language</label>
+                <select value={form.language} onChange={e => setForm({ ...form, language: e.target.value })} style={inputStyle}>
+                  <option value="en">English</option>
+                  <option value="hi">Hindi</option>
+                  <option value="ta">Tamil</option>
+                  <option value="te">Telugu</option>
+                  <option value="ml">Malayalam</option>
+                  <option value="kn">Kannada</option>
+                </select>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Poster URL</label>
+                <input value={form.poster} onChange={e => setForm({ ...form, poster: e.target.value })} placeholder="https://..." style={inputStyle} />
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Description</label>
+                <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3}
+                  style={{ ...inputStyle, resize: 'vertical' }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="submit" disabled={saving}
+                style={{ padding: '8px 20px', background: '#28a745', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.7 : 1 }}>
+                {saving ? 'Saving...' : editingMovie ? 'Update Movie' : 'Create Movie'}
+              </button>
+              <button type="button" onClick={resetForm}
+                style={{ padding: '8px 20px', background: '#6c757d', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
-          <tr>{['Title', 'Genre', 'Rating', 'Release Date', 'Status'].map(h => (
+          <tr>{['Title', 'Genre', 'Rating', 'Release Date', 'Status', 'Actions'].map(h => (
             <th key={h} style={thStyle}>{h}</th>
           ))}</tr>
         </thead>
@@ -349,6 +499,18 @@ function MoviesTab({ movies }: { movies: MovieRow[] }) {
                 }}>
                   {m.isActive ? 'Active' : 'Inactive'}
                 </span>
+              </td>
+              <td style={tdStyle}>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => openEdit(m)}
+                    style={{ padding: '4px 10px', background: '#007bff', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}>
+                    Edit
+                  </button>
+                  <button onClick={() => handleDelete(m._id, m.title)}
+                    style={{ padding: '4px 10px', background: '#dc3545', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}>
+                    Delete
+                  </button>
+                </div>
               </td>
             </tr>
           ))}

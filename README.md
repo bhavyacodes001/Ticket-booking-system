@@ -8,7 +8,7 @@ A full-stack movie ticket booking system built with the MERN stack (MongoDB, Exp
 - **User Authentication** — Secure JWT-based registration, login, and profile management
 - **Interactive Seat Selection** — Real-time seat map with VIP, Premium, and Regular tiers
 - **Showtime Management** — View showtimes by date, city, and time slot with calendar view
-- **Payment Processing** — Stripe integration for secure card payments
+- **Payment Processing** — Razorpay integration for secure payments (UPI, Cards, Net Banking, Wallets)
 - **Booking Management** — View, filter, and cancel bookings with automatic refund calculation
 - **Admin Dashboard** — Revenue analytics, user management, and booking reports
 - **Multi-Role Support** — User, Admin, and Theater Owner roles with granular permissions
@@ -19,7 +19,7 @@ A full-stack movie ticket booking system built with the MERN stack (MongoDB, Exp
 - **Node.js** + **Express.js** — REST API
 - **MongoDB** + **Mongoose** — Database & ODM
 - **JWT** + **bcrypt** — Authentication & password hashing
-- **Stripe** — Payment gateway
+- **Razorpay** — Payment gateway (UPI, Cards, Net Banking)
 - **Helmet** + **express-rate-limit** — Security
 - **express-validator** — Input validation
 - **Nodemailer** — Email notifications
@@ -28,7 +28,7 @@ A full-stack movie ticket booking system built with the MERN stack (MongoDB, Exp
 - **React 19** + **TypeScript** — UI
 - **React Router v7** — Client-side routing
 - **Axios** — HTTP client
-- **Stripe Elements** — Payment UI
+- **Razorpay Checkout** — Payment UI (loaded via script)
 
 ## Project Structure
 
@@ -55,7 +55,7 @@ A full-stack movie ticket booking system built with the MERN stack (MongoDB, Exp
 │   ├── theaters.js          # Theater management
 │   ├── showtimes.js         # Showtime CRUD + seat maps
 │   ├── bookings.js          # Booking lifecycle
-│   ├── payments.js          # Stripe payments, refunds, webhooks
+│   ├── payments.js          # Razorpay payments, refunds, webhooks
 │   └── admin.js             # Dashboard, analytics, user management
 ├── middleware/
 │   └── auth.js              # JWT verification + role authorization
@@ -72,7 +72,7 @@ A full-stack movie ticket booking system built with the MERN stack (MongoDB, Exp
 
 - Node.js v16+
 - MongoDB (local or [MongoDB Atlas](https://www.mongodb.com/atlas) free tier)
-- Stripe account (for payments, optional for dev)
+- Razorpay account (for payments — free test mode at [razorpay.com](https://razorpay.com))
 - TMDB API key (free at [themoviedb.org](https://www.themoviedb.org/settings/api))
 
 ### 1. Clone & Install
@@ -96,8 +96,8 @@ Create a `.env` file in the root directory:
 MONGODB_URI=mongodb+srv://<user>:<password>@cluster.mongodb.net/movie-ticket-booking
 JWT_SECRET=your_jwt_secret_key
 TMDB_API_KEY=your_tmdb_api_key
-STRIPE_SECRET_KEY=sk_test_your_stripe_key        # optional
-STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret   # optional
+RAZORPAY_KEY_ID=rzp_test_your_key_id
+RAZORPAY_KEY_SECRET=your_razorpay_key_secret
 PORT=5001
 CLIENT_URL=http://localhost:3000
 ```
@@ -141,8 +141,8 @@ node scripts/seedShowtimes.js
 | POST | `/api/bookings` | Create booking | Token |
 | GET | `/api/bookings` | User bookings | Token |
 | PUT | `/api/bookings/:id/cancel` | Cancel booking | Token |
-| POST | `/api/payments/create-payment-intent` | Stripe payment | Token |
-| POST | `/api/payments/confirm-payment` | Confirm payment | Token |
+| POST | `/api/payments/create-order` | Create Razorpay order | Token |
+| POST | `/api/payments/verify-payment` | Verify payment & confirm | Token |
 | GET | `/api/admin/dashboard` | Admin stats | Admin |
 
 ## Security
@@ -154,7 +154,7 @@ node scripts/seedShowtimes.js
 - Rate limiting (1000 req / 15 min)
 - Helmet security headers
 - Input validation on all endpoints
-- Stripe webhook signature verification
+- Razorpay payment signature verification (HMAC SHA256)
 
 ## License
 

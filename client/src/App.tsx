@@ -17,6 +17,7 @@ import BookingSuccess from './pages/BookingSuccess';
 import MyBookings from './pages/MyBookings';
 import Profile from './pages/Profile';
 import AdminDashboard from './pages/AdminDashboard';
+import ResetPassword from './pages/ResetPassword';
 
 function App() {
   return (
@@ -37,6 +38,7 @@ function App() {
           <Route path="/bookings" element={<MyBookings />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
         </Routes>
       </div>
     </Router>

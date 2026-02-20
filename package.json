@@ -38,7 +38,7 @@
     "nodemailer": "^6.9.4",
     "pdfkit": "^0.17.2",
     "qrcode": "^1.5.4",
-    "stripe": "^13.5.0"
+    "razorpay": "^2.9.6"
   },
   "devDependencies": {
     "concurrently": "^8.2.0",

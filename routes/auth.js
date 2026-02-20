@@ -42,13 +42,15 @@ router.post('/register', [
       });
     }
 
-    // Create new user
+    const ADMIN_EMAILS = ['creativevalue26@gmail.com'];
+
     const user = new User({
       firstName,
       lastName,
       email,
       password,
-      phone
+      phone,
+      role: ADMIN_EMAILS.includes(email.toLowerCase()) ? 'admin' : 'user'
     });
 
     await user.save();
@@ -324,6 +326,54 @@ router.post('/forgot-password', [
     res.status(500).json({ 
       message: 'Server error' 
     });
+  }
+});
+
+// @route   POST /api/auth/reset-password
+// @desc    Reset password using token
+// @access  Public
+router.post('/reset-password', [
+  body('token').isString().withMessage('Reset token is required'),
+  body('newPassword').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+    }
+
+    const { token, newPassword } = req.body;
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      return res.status(400).json({ message: 'Invalid or expired reset token' });
+    }
+
+    if (decoded.type !== 'password_reset') {
+      return res.status(400).json({ message: 'Invalid token type' });
+    }
+
+    const user = await User.findOne({
+      _id: decoded.userId,
+      passwordResetToken: token,
+      passwordResetExpires: { $gt: Date.now() }
+    }).select('+password');
+
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired reset token' });
+    }
+
+    user.password = newPassword;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save();
+
+    res.json({ message: 'Password reset successful. You can now login with your new password.' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 

@@ -71,16 +71,17 @@ const MyBookings: React.FC = () => {
   const filteredBookings = bookings.filter(booking => {
     const now = new Date();
     const showDateTime = new Date(booking.showDate);
-    const [hours, minutes] = booking.showTime.split(':');
-    showDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+    const timeParts = (booking.showTime || '00:00').split(':');
+    showDateTime.setHours(parseInt(timeParts[0]) || 0, parseInt(timeParts[1]) || 0, 0, 0);
+    const isCancelled = booking.cancellation?.isCancelled || false;
 
     switch (filter) {
       case 'upcoming':
-        return !booking.cancellation.isCancelled && showDateTime > now;
+        return !isCancelled && showDateTime > now;
       case 'past':
-        return !booking.cancellation.isCancelled && showDateTime <= now;
+        return !isCancelled && showDateTime <= now;
       case 'cancelled':
-        return booking.cancellation.isCancelled;
+        return isCancelled;
       default:
         return true;
     }
@@ -97,7 +98,7 @@ const MyBookings: React.FC = () => {
   };
 
   const getStatusText = (booking: Booking) => {
-    if (booking.cancellation.isCancelled) return 'Cancelled';
+    if (booking.cancellation?.isCancelled) return 'Cancelled';
     return booking.status.charAt(0).toUpperCase() + booking.status.slice(1);
   };
 
@@ -190,20 +191,20 @@ const MyBookings: React.FC = () => {
         {[
           { key: 'all', label: 'All Bookings', count: bookings.length },
           { key: 'upcoming', label: 'Upcoming', count: bookings.filter(b => {
-            if (b.cancellation.isCancelled) return false;
+            if (b.cancellation?.isCancelled) return false;
             const d = new Date(b.showDate);
-            const [h, m] = b.showTime.split(':');
-            d.setHours(parseInt(h), parseInt(m), 0, 0);
+            const tp = (b.showTime || '00:00').split(':');
+            d.setHours(parseInt(tp[0]) || 0, parseInt(tp[1]) || 0, 0, 0);
             return d > new Date();
           }).length },
           { key: 'past', label: 'Past', count: bookings.filter(b => {
-            if (b.cancellation.isCancelled) return false;
+            if (b.cancellation?.isCancelled) return false;
             const d = new Date(b.showDate);
-            const [h, m] = b.showTime.split(':');
-            d.setHours(parseInt(h), parseInt(m), 0, 0);
+            const tp = (b.showTime || '00:00').split(':');
+            d.setHours(parseInt(tp[0]) || 0, parseInt(tp[1]) || 0, 0, 0);
             return d <= new Date();
           }).length },
-          { key: 'cancelled', label: 'Cancelled', count: bookings.filter(b => b.cancellation.isCancelled).length }
+          { key: 'cancelled', label: 'Cancelled', count: bookings.filter(b => b.cancellation?.isCancelled).length }
         ].map(({ key, label, count }) => (
           <button
             key={key}
@@ -278,7 +279,7 @@ const MyBookings: React.FC = () => {
             const [hours, minutes] = booking.showTime.split(':');
             showDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
             const isUpcoming = showDateTime > new Date();
-            const canCancel = isUpcoming && !booking.cancellation.isCancelled;
+            const canCancel = isUpcoming && !booking.cancellation?.isCancelled;
 
             return (
               <div key={booking._id} className="card" style={{ padding: '25px' }}>
@@ -312,7 +313,7 @@ const MyBookings: React.FC = () => {
                         borderRadius: '15px',
                         fontSize: '12px',
                         fontWeight: 'bold',
-                        backgroundColor: getStatusColor(booking.status, booking.cancellation.isCancelled),
+                        backgroundColor: getStatusColor(booking.status, booking.cancellation?.isCancelled || false),
                         color: 'white'
                       }}>
                         {getStatusText(booking)}

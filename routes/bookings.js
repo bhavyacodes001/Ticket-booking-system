@@ -286,7 +286,7 @@ router.get('/', auth, [
       filter.status = req.query.status;
     }
 
-    const bookings = await Booking.find(filter)
+    const dbBookings = await Booking.find(filter)
       .populate('movie', 'title poster')
       .populate('theater', 'name address.city')
       .populate('showtime', 'date time')
@@ -296,12 +296,24 @@ router.get('/', auth, [
 
     const total = await Booking.countDocuments(filter);
 
+    // Include dummy bookings for this user
+    const userIdStr = String(req.user.userId);
+    const userDummyBookings = [];
+    for (const [, db] of dummyBookings) {
+      if (String(db.user) === userIdStr) {
+        userDummyBookings.push(db);
+      }
+    }
+    userDummyBookings.sort((a, b) => new Date(b.bookingDate).getTime() - new Date(a.bookingDate).getTime());
+
+    const allBookings = [...userDummyBookings, ...dbBookings];
+
     res.json({
-      bookings,
+      bookings: allBookings,
       pagination: {
         currentPage: page,
-        totalPages: Math.ceil(total / limit),
-        totalBookings: total,
+        totalPages: Math.ceil((total + userDummyBookings.length) / limit),
+        totalBookings: total + userDummyBookings.length,
         hasNext: page < Math.ceil(total / limit),
         hasPrev: page > 1
       }
@@ -497,7 +509,7 @@ router.get('/admin/all', auth, adminAuth, [
       filter.showDate = { $gte: searchDate, $lt: nextDay };
     }
 
-    const bookings = await Booking.find(filter)
+    const dbBookings = await Booking.find(filter)
       .populate('user', 'firstName lastName email phone')
       .populate('movie', 'title poster')
       .populate('theater', 'name address.city')
@@ -508,12 +520,22 @@ router.get('/admin/all', auth, adminAuth, [
 
     const total = await Booking.countDocuments(filter);
 
+    // Include all dummy bookings for admin view
+    const allDummy = [];
+    for (const [, db] of dummyBookings) {
+      allDummy.push(db);
+    }
+    allDummy.sort((a, b) => new Date(b.bookingDate).getTime() - new Date(a.bookingDate).getTime());
+
+    const bookings = [...allDummy, ...dbBookings];
+    const grandTotal = total + allDummy.length;
+
     res.json({
       bookings,
       pagination: {
         currentPage: page,
-        totalPages: Math.ceil(total / limit),
-        totalBookings: total,
+        totalPages: Math.ceil(grandTotal / limit),
+        totalBookings: grandTotal,
         hasNext: page < Math.ceil(total / limit),
         hasPrev: page > 1
       }
@@ -531,16 +553,25 @@ router.get('/admin/all', auth, adminAuth, [
 // @access  Private
 router.get('/:id/ticket', auth, async (req, res) => {
   try {
-    const booking = await Booking.findById(req.params.id)
-      .populate('movie', 'title poster')
-      .populate('theater', 'name address')
-      .populate('user', 'firstName lastName email');
+    let booking;
+    let isDummy = false;
+
+    if (req.params.id.startsWith('booking_')) {
+      booking = dummyBookings.get(req.params.id);
+      isDummy = true;
+    } else {
+      booking = await Booking.findById(req.params.id)
+        .populate('movie', 'title poster')
+        .populate('theater', 'name address')
+        .populate('user', 'firstName lastName email');
+    }
 
     if (!booking) {
       return res.status(404).json({ message: 'Booking not found' });
     }
 
-    if (booking.user._id.toString() !== req.user.userId && req.user.role !== 'admin') {
+    const bookingUserId = isDummy ? String(booking.user) : booking.user._id.toString();
+    if (bookingUserId !== String(req.user.userId) && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -556,7 +587,7 @@ router.get('/:id/ticket', auth, async (req, res) => {
         showDate: booking.showDate,
         showTime: booking.showTime
       });
-      await booking.save();
+      if (!isDummy) await booking.save();
     }
 
     const pdfBuffer = await generateTicketPDF(booking);
@@ -577,3 +608,4 @@ router.get('/:id/ticket', auth, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.dummyBookings = dummyBookings;

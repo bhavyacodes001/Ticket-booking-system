@@ -524,6 +524,29 @@ const Profile: React.FC = () => {
               Change Password
             </button>
           </form>
+
+          <div style={{ borderTop: '1px solid #eee', marginTop: 20, paddingTop: 16, textAlign: 'center' }}>
+            <p style={{ color: '#888', fontSize: 13, marginBottom: 8 }}>Don't remember your current password?</p>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!profile?.email) return;
+                setMessage('');
+                try {
+                  await api.post('/auth/forgot-password', { email: profile.email });
+                  setMessage('✅ Password reset link sent to your email!');
+                } catch (err: any) {
+                  setMessage(`❌ ${err.response?.data?.message || 'Failed to send reset email'}`);
+                }
+              }}
+              style={{
+                background: 'none', border: '1px solid #e50914', color: '#e50914',
+                padding: '8px 20px', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600
+              }}
+            >
+              Send Password Reset Email
+            </button>
+          </div>
         </div>
       </div>
 
@@ -567,10 +590,16 @@ const Profile: React.FC = () => {
           </button>
 
           <button
-            onClick={() => {
-              if (window.confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
-                // TODO: Implement account deletion
-                alert('Account deletion feature coming soon!');
+            onClick={async () => {
+              const password = window.prompt('Enter your password to confirm account deletion:');
+              if (!password) return;
+              if (!window.confirm('This will permanently delete your account and cancel all pending bookings. Are you sure?')) return;
+              try {
+                await api.delete('/auth/account', { data: { password } });
+                localStorage.removeItem('token');
+                window.location.href = '/';
+              } catch (err: any) {
+                setMessage(`❌ ${err.response?.data?.message || 'Failed to delete account'}`);
               }
             }}
             style={{

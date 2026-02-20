@@ -84,15 +84,21 @@ const BookingSuccess: React.FC = () => {
     }
   };
 
-  const handleShareBooking = () => {
+  const handleShareBooking = async () => {
     if (navigator.share) {
-      navigator.share({
-        title: 'Movie Ticket Booking',
-        text: `I've booked tickets for ${bookingDetails?.movie.title} at ${bookingDetails?.theater.name}`,
-        url: window.location.href
-      });
+      try {
+        await navigator.share({
+          title: 'Movie Ticket Booking',
+          text: `I've booked tickets for ${bookingDetails?.movie.title} at ${bookingDetails?.theater.name}`,
+          url: window.location.href
+        });
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          navigator.clipboard.writeText(window.location.href);
+          alert('Booking link copied to clipboard!');
+        }
+      }
     } else {
-      // Fallback: copy to clipboard
       navigator.clipboard.writeText(window.location.href);
       alert('Booking link copied to clipboard!');
     }
@@ -220,7 +226,9 @@ const BookingSuccess: React.FC = () => {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontSize: '16px' }}>📍</span>
-                <span>{bookingDetails.theater.address}</span>
+                <span>{typeof bookingDetails.theater.address === 'object'
+                  ? `${(bookingDetails.theater.address as any).city || ''}, ${(bookingDetails.theater.address as any).state || ''}`
+                  : bookingDetails.theater.address}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontSize: '16px' }}>📅</span>

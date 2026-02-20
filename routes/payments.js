@@ -1,275 +1,261 @@
 const express = require('express');
+const crypto = require('crypto');
 const { body, validationResult } = require('express-validator');
-const stripeKey = process.env.STRIPE_SECRET_KEY;
-if (!stripeKey) {
-  console.warn('WARNING: STRIPE_SECRET_KEY not set. Payment endpoints will return errors.');
-}
-const stripe = stripeKey ? require('stripe')(stripeKey) : null;
 const Booking = require('../models/Booking');
 const Showtime = require('../models/Showtime');
 const { auth } = require('../middleware/auth');
 const { sendBookingConfirmation } = require('../utils/email');
 const { generateQRCode } = require('../utils/ticket');
+const { dummyBookings } = require('./bookings');
 
 const router = express.Router();
 
-const requireStripe = (req, res, next) => {
-  if (!stripe) {
-    return res.status(503).json({ message: 'Payment service unavailable. Stripe is not configured.' });
+const razorpayKeyId = process.env.RAZORPAY_KEY_ID;
+const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET;
+
+let razorpay = null;
+if (razorpayKeyId && razorpayKeySecret) {
+  const Razorpay = require('razorpay');
+  razorpay = new Razorpay({ key_id: razorpayKeyId, key_secret: razorpayKeySecret });
+} else {
+  console.warn('WARNING: RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET not set. Payment endpoints will return errors.');
+}
+
+const requireRazorpay = (req, res, next) => {
+  if (!razorpay) {
+    return res.status(503).json({ message: 'Payment service unavailable. Razorpay is not configured.' });
   }
   next();
 };
 
-// @route   POST /api/payments/create-payment-intent
-// @desc    Create Stripe payment intent
+async function findBooking(bookingId, populateFields) {
+  if (bookingId.startsWith('booking_')) {
+    return { booking: dummyBookings.get(bookingId) || null, isDummy: true };
+  }
+  const booking = await Booking.findById(bookingId).populate(populateFields);
+  return { booking, isDummy: false };
+}
+
+// @route   POST /api/payments/create-order
+// @desc    Create Razorpay order for a booking
 // @access  Private
-router.post('/create-payment-intent', auth, requireStripe, [
-  body('bookingId').isMongoId().withMessage('Valid booking ID is required'),
-  body('amount').isFloat({ min: 0.01 }).withMessage('Amount must be greater than 0')
+router.post('/create-order', auth, requireRazorpay, [
+  body('bookingId').isString().notEmpty().withMessage('Booking ID is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: errors.array() 
-      });
+      return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
     }
 
-    const { bookingId, amount } = req.body;
+    const { bookingId } = req.body;
 
-    // Get booking
-    const booking = await Booking.findById(bookingId)
-      .populate('user', 'firstName lastName email')
-      .populate('movie', 'title')
-      .populate('theater', 'name');
+    const { booking, isDummy } = await findBooking(bookingId, [
+      { path: 'user', select: 'firstName lastName email' },
+      { path: 'movie', select: 'title' },
+      { path: 'theater', select: 'name' }
+    ]);
 
     if (!booking) {
-      return res.status(404).json({ 
-        message: 'Booking not found' 
-      });
+      return res.status(404).json({ message: 'Booking not found' });
     }
 
-    // Check if user owns the booking
-    if (booking.user._id.toString() !== req.user.userId) {
-      return res.status(403).json({ 
-        message: 'Access denied' 
-      });
+    const bookingUserId = isDummy ? String(booking.user) : booking.user._id.toString();
+    if (bookingUserId !== String(req.user.userId)) {
+      return res.status(403).json({ message: 'Access denied' });
     }
 
-    // Check if booking is still pending
     if (booking.status !== 'pending') {
-      return res.status(400).json({ 
-        message: 'Booking is not in pending status' 
-      });
+      return res.status(400).json({ message: 'Booking is not in pending status' });
     }
 
-    // Verify amount matches booking total
-    if (Math.abs(amount - booking.totalAmount) > 0.01) {
-      return res.status(400).json({ 
-        message: 'Amount does not match booking total' 
-      });
-    }
+    const amountInPaise = Math.round(booking.totalAmount * 100);
 
-    // Create payment intent
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), // Convert to cents
-      currency: 'usd',
-      metadata: {
-        bookingId: bookingId,
+    const movieTitle = booking.movie?.title || 'Movie';
+    const theaterName = booking.theater?.name || 'Theater';
+
+    const order = await razorpay.orders.create({
+      amount: amountInPaise,
+      currency: 'INR',
+      receipt: booking.bookingNumber,
+      notes: {
+        bookingId,
         userId: req.user.userId,
-        movieTitle: booking.movie.title,
-        theaterName: booking.theater.name
-      },
-      description: `Movie ticket booking for ${booking.movie.title} at ${booking.theater.name}`,
-      automatic_payment_methods: {
-        enabled: true,
-      },
+        movieTitle,
+        theaterName
+      }
     });
 
-    // Update booking with payment intent ID
-    booking.payment.stripePaymentIntentId = paymentIntent.id;
-    await booking.save();
+    if (isDummy) {
+      booking.payment.razorpayOrderId = order.id;
+    } else {
+      booking.payment.razorpayOrderId = order.id;
+      await booking.save();
+    }
+
+    const userName = isDummy
+      ? 'Customer'
+      : `${booking.user.firstName} ${booking.user.lastName}`;
+    const userEmail = isDummy ? '' : booking.user.email;
 
     res.json({
-      clientSecret: paymentIntent.client_secret,
-      paymentIntentId: paymentIntent.id
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      keyId: razorpayKeyId,
+      bookingNumber: booking.bookingNumber,
+      prefill: { name: userName, email: userEmail }
     });
   } catch (error) {
-    console.error('Create payment intent error:', error);
-    res.status(500).json({ 
-      message: 'Server error while creating payment intent' 
-    });
+    console.error('Create Razorpay order error:', error);
+    res.status(500).json({ message: 'Server error while creating payment order' });
   }
 });
 
-// @route   POST /api/payments/confirm-payment
-// @desc    Confirm payment and update booking status
+// @route   POST /api/payments/verify-payment
+// @desc    Verify Razorpay payment signature and confirm booking
 // @access  Private
-router.post('/confirm-payment', auth, requireStripe, [
-  body('paymentIntentId').isString().withMessage('Payment intent ID is required'),
-  body('bookingId').isMongoId().withMessage('Valid booking ID is required')
+router.post('/verify-payment', auth, [
+  body('razorpay_order_id').isString().withMessage('Order ID is required'),
+  body('razorpay_payment_id').isString().withMessage('Payment ID is required'),
+  body('razorpay_signature').isString().withMessage('Signature is required'),
+  body('bookingId').isString().notEmpty().withMessage('Booking ID is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: errors.array() 
-      });
+      return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
     }
 
-    const { paymentIntentId, bookingId } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, bookingId } = req.body;
 
-    // Get booking
-    const booking = await Booking.findById(bookingId)
-      .populate('showtime')
-      .populate('user', 'firstName lastName email');
+    const expectedSignature = crypto
+      .createHmac('sha256', razorpayKeySecret)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
 
-    if (!booking) {
-      return res.status(404).json({ 
-        message: 'Booking not found' 
-      });
+    if (expectedSignature !== razorpay_signature) {
+      return res.status(400).json({ message: 'Payment verification failed. Invalid signature.' });
     }
 
-    // Check if user owns the booking
-    if (booking.user._id.toString() !== req.user.userId) {
-      return res.status(403).json({ 
-        message: 'Access denied' 
-      });
-    }
-
-    // Verify payment intent
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-
-    if (paymentIntent.status !== 'succeeded') {
-      return res.status(400).json({ 
-        message: 'Payment not completed' 
-      });
-    }
-
-    booking.status = 'confirmed';
-    booking.payment.status = 'completed';
-    booking.payment.transactionId = paymentIntent.id;
-    booking.payment.paidAt = new Date();
-
-    booking.qrCode = await generateQRCode({
-      bookingNumber: booking.bookingNumber,
-      movie: booking.showtime?.movie || bookingId,
-      seats: booking.tickets.map(t => `${t.seat.row}${t.seat.number}`),
-      showDate: booking.showDate,
-      showTime: booking.showTime
-    });
-
-    await booking.save();
-
-    await booking.populate([
-      { path: 'movie', select: 'title poster' },
-      { path: 'theater', select: 'name' },
+    const { booking, isDummy } = await findBooking(bookingId, [
+      { path: 'showtime' },
       { path: 'user', select: 'firstName lastName email' }
     ]);
-    sendBookingConfirmation(booking).catch(err => console.error('Confirmation email failed:', err.message));
-    booking.notifications.bookingConfirmation = { sent: true, sentAt: new Date() };
-    await booking.save();
 
-    res.json({
-      message: 'Payment confirmed and booking completed successfully',
-      booking
-    });
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+
+    const bookingUserId = isDummy ? String(booking.user) : booking.user._id.toString();
+    if (bookingUserId !== String(req.user.userId)) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    if (isDummy) {
+      booking.status = 'confirmed';
+      booking.payment.status = 'completed';
+      booking.payment.transactionId = razorpay_payment_id;
+      booking.payment.razorpayPaymentId = razorpay_payment_id;
+      booking.payment.razorpaySignature = razorpay_signature;
+      booking.payment.paidAt = new Date();
+
+      res.json({ message: 'Payment verified and booking confirmed', booking });
+    } else {
+      booking.status = 'confirmed';
+      booking.payment.status = 'completed';
+      booking.payment.transactionId = razorpay_payment_id;
+      booking.payment.razorpayPaymentId = razorpay_payment_id;
+      booking.payment.razorpaySignature = razorpay_signature;
+      booking.payment.paidAt = new Date();
+
+      booking.qrCode = await generateQRCode({
+        bookingNumber: booking.bookingNumber,
+        movie: booking.showtime?.movie || bookingId,
+        seats: booking.tickets.map(t => `${t.seat.row}${t.seat.number}`),
+        showDate: booking.showDate,
+        showTime: booking.showTime
+      });
+
+      await booking.save();
+
+      await booking.populate([
+        { path: 'movie', select: 'title poster' },
+        { path: 'theater', select: 'name' },
+        { path: 'user', select: 'firstName lastName email' }
+      ]);
+      sendBookingConfirmation(booking).catch(err => console.error('Confirmation email failed:', err.message));
+      booking.notifications.bookingConfirmation = { sent: true, sentAt: new Date() };
+      await booking.save();
+
+      res.json({ message: 'Payment verified and booking confirmed', booking });
+    }
   } catch (error) {
-    console.error('Confirm payment error:', error);
-    res.status(500).json({ 
-      message: 'Server error while confirming payment' 
-    });
+    console.error('Verify payment error:', error);
+    res.status(500).json({ message: 'Server error while verifying payment' });
   }
 });
 
 // @route   POST /api/payments/refund
 // @desc    Process refund for cancelled booking
 // @access  Private
-router.post('/refund', auth, requireStripe, [
+router.post('/refund', auth, requireRazorpay, [
   body('bookingId').isMongoId().withMessage('Valid booking ID is required'),
   body('amount').optional().isFloat({ min: 0 }).withMessage('Amount must be non-negative')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: errors.array() 
-      });
+      return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
     }
 
     const { bookingId, amount } = req.body;
 
-    // Get booking
     const booking = await Booking.findById(bookingId)
       .populate('user', 'firstName lastName email');
 
     if (!booking) {
-      return res.status(404).json({ 
-        message: 'Booking not found' 
-      });
+      return res.status(404).json({ message: 'Booking not found' });
     }
 
-    // Check if user owns the booking or is admin
     if (booking.user._id.toString() !== req.user.userId && req.user.role !== 'admin') {
-      return res.status(403).json({ 
-        message: 'Access denied' 
-      });
+      return res.status(403).json({ message: 'Access denied' });
     }
 
-    // Check if booking is cancelled
     if (!booking.cancellation.isCancelled) {
-      return res.status(400).json({ 
-        message: 'Booking is not cancelled' 
-      });
+      return res.status(400).json({ message: 'Booking is not cancelled' });
     }
 
-    // Check if already refunded
     if (booking.cancellation.refundStatus === 'processed') {
-      return res.status(400).json({ 
-        message: 'Refund already processed' 
-      });
+      return res.status(400).json({ message: 'Refund already processed' });
     }
 
     const refundAmount = amount || booking.cancellation.refundAmount;
-
     if (refundAmount <= 0) {
-      return res.status(400).json({ 
-        message: 'No refund amount available' 
-      });
+      return res.status(400).json({ message: 'No refund amount available' });
     }
 
-    // Process refund with Stripe
-    const refund = await stripe.refunds.create({
-      payment_intent: booking.payment.stripePaymentIntentId,
-      amount: Math.round(refundAmount * 100), // Convert to cents
-      reason: 'requested_by_customer',
-      metadata: {
-        bookingId: bookingId,
-        reason: 'booking_cancellation'
-      }
+    const paymentId = booking.payment.razorpayPaymentId || booking.payment.transactionId;
+    if (!paymentId) {
+      return res.status(400).json({ message: 'No payment ID found for refund' });
+    }
+
+    const refund = await razorpay.payments.refund(paymentId, {
+      amount: Math.round(refundAmount * 100),
+      notes: { bookingId, reason: 'booking_cancellation' }
     });
 
-    // Update booking refund status
     booking.cancellation.refundStatus = 'processed';
     booking.cancellation.refundTransactionId = refund.id;
     await booking.save();
 
     res.json({
       message: 'Refund processed successfully',
-      refund: {
-        id: refund.id,
-        amount: refundAmount,
-        status: refund.status
-      }
+      refund: { id: refund.id, amount: refundAmount, status: refund.status }
     });
   } catch (error) {
     console.error('Process refund error:', error);
-    res.status(500).json({ 
-      message: 'Server error while processing refund' 
-    });
+    res.status(500).json({ message: 'Server error while processing refund' });
   }
 });
 
@@ -277,94 +263,52 @@ router.post('/refund', auth, requireStripe, [
 // @desc    Get available payment methods
 // @access  Public
 router.get('/payment-methods', (req, res) => {
-  const paymentMethods = [
-    {
-      id: 'card',
-      name: 'Credit/Debit Card',
-      description: 'Visa, Mastercard, American Express',
-      icon: 'credit-card'
-    },
-    {
-      id: 'wallet',
-      name: 'Digital Wallet',
-      description: 'Apple Pay, Google Pay, Samsung Pay',
-      icon: 'smartphone'
-    },
-    {
-      id: 'upi',
-      name: 'UPI',
-      description: 'PhonePe, Google Pay, Paytm',
-      icon: 'qr-code'
-    },
-    {
-      id: 'netbanking',
-      name: 'Net Banking',
-      description: 'Direct bank transfer',
-      icon: 'bank'
-    }
-  ];
-
-  res.json({ paymentMethods });
+  res.json({
+    paymentMethods: [
+      { id: 'upi', name: 'UPI', description: 'Google Pay, PhonePe, Paytm', icon: 'qr-code' },
+      { id: 'card', name: 'Credit/Debit Card', description: 'Visa, Mastercard, RuPay', icon: 'credit-card' },
+      { id: 'netbanking', name: 'Net Banking', description: 'All major banks', icon: 'bank' },
+      { id: 'wallet', name: 'Wallets', description: 'Paytm, PhonePe, Amazon Pay', icon: 'smartphone' }
+    ]
+  });
 });
 
 // @route   POST /api/payments/webhook
-// @desc    Stripe webhook handler
-// @access  Public (Stripe webhook)
+// @desc    Razorpay webhook handler
+// @access  Public (Razorpay webhook)
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  let event;
-
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+  const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    return res.status(200).json({ received: true });
   }
 
-  // Handle the event
-  switch (event.type) {
-    case 'payment_intent.succeeded':
-      const paymentIntent = event.data.object;
-      console.log('Payment succeeded:', paymentIntent.id);
-      
-      // Update booking status if needed
-      try {
-        const booking = await Booking.findOne({
-          'payment.stripePaymentIntentId': paymentIntent.id
-        });
-        
-        if (booking && booking.status === 'pending') {
-          booking.status = 'confirmed';
-          booking.payment.status = 'completed';
-          booking.payment.paidAt = new Date();
-          await booking.save();
-        }
-      } catch (error) {
-        console.error('Error updating booking from webhook:', error);
-      }
-      break;
+  const signature = req.headers['x-razorpay-signature'];
+  const expectedSignature = crypto
+    .createHmac('sha256', webhookSecret)
+    .update(req.body)
+    .digest('hex');
 
-    case 'payment_intent.payment_failed':
-      const failedPayment = event.data.object;
-      console.log('Payment failed:', failedPayment.id);
-      
-      // Update booking status if needed
-      try {
-        const booking = await Booking.findOne({
-          'payment.stripePaymentIntentId': failedPayment.id
-        });
-        
-        if (booking && booking.status === 'pending') {
-          booking.payment.status = 'failed';
-          await booking.save();
-        }
-      } catch (error) {
-        console.error('Error updating booking from webhook:', error);
-      }
-      break;
+  if (signature !== expectedSignature) {
+    console.error('Webhook signature verification failed');
+    return res.status(400).send('Invalid signature');
+  }
 
-    default:
-      console.log(`Unhandled event type ${event.type}`);
+  const event = JSON.parse(req.body);
+
+  if (event.event === 'payment.captured') {
+    const payment = event.payload.payment.entity;
+    try {
+      const booking = await Booking.findOne({ 'payment.razorpayOrderId': payment.order_id });
+      if (booking && booking.status === 'pending') {
+        booking.status = 'confirmed';
+        booking.payment.status = 'completed';
+        booking.payment.transactionId = payment.id;
+        booking.payment.paidAt = new Date();
+        await booking.save();
+      }
+    } catch (error) {
+      console.error('Error updating booking from webhook:', error);
+    }
   }
 
   res.json({ received: true });
@@ -379,16 +323,11 @@ router.get('/booking/:bookingId/status', auth, async (req, res) => {
       .select('payment status bookingNumber user');
 
     if (!booking) {
-      return res.status(404).json({ 
-        message: 'Booking not found' 
-      });
+      return res.status(404).json({ message: 'Booking not found' });
     }
 
-    // Check if user owns the booking
     if (booking.user.toString() !== req.user.userId) {
-      return res.status(403).json({ 
-        message: 'Access denied' 
-      });
+      return res.status(403).json({ message: 'Access denied' });
     }
 
     res.json({
@@ -400,14 +339,20 @@ router.get('/booking/:bookingId/status', auth, async (req, res) => {
   } catch (error) {
     console.error('Get payment status error:', error);
     if (error.name === 'CastError') {
-      return res.status(400).json({ 
-        message: 'Invalid booking ID' 
-      });
+      return res.status(400).json({ message: 'Invalid booking ID' });
     }
-    res.status(500).json({ 
-      message: 'Server error while fetching payment status' 
-    });
+    res.status(500).json({ message: 'Server error while fetching payment status' });
   }
+});
+
+// @route   GET /api/payments/config
+// @desc    Get Razorpay public key for frontend
+// @access  Public
+router.get('/config', (req, res) => {
+  res.json({
+    keyId: razorpayKeyId || null,
+    configured: !!razorpay
+  });
 });
 
 module.exports = router;

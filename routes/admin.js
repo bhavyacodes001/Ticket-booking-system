@@ -6,6 +6,7 @@ const Theater = require('../models/Theater');
 const Showtime = require('../models/Showtime');
 const Booking = require('../models/Booking');
 const { auth, adminAuth } = require('../middleware/auth');
+const { dummyBookings } = require('./bookings');
 
 const router = express.Router();
 
@@ -59,13 +60,24 @@ router.get('/dashboard', async (req, res) => {
       Showtime.countDocuments({ status: 'scheduled', isActive: true })
     ]);
 
-    // Get recent bookings
-    const recentBookings = await Booking.find()
+    // Get recent bookings from DB
+    const recentDbBookings = await Booking.find()
       .populate('user', 'firstName lastName email')
       .populate('movie', 'title poster')
       .populate('theater', 'name')
       .sort({ bookingDate: -1 })
       .limit(10);
+
+    // Include dummy bookings
+    const allDummy = [];
+    let dummyRevenue = 0;
+    for (const [, db] of dummyBookings) {
+      allDummy.push(db);
+      if (db.status === 'confirmed') dummyRevenue += (db.totalAmount || 0);
+    }
+    allDummy.sort((a, b) => new Date(b.bookingDate).getTime() - new Date(a.bookingDate).getTime());
+
+    const recentBookings = [...allDummy.slice(0, 5), ...recentDbBookings].slice(0, 10);
 
     // Get top movies by bookings
     const topMovies = await Booking.aggregate([
@@ -83,10 +95,10 @@ router.get('/dashboard', async (req, res) => {
         totalUsers,
         totalMovies,
         totalTheaters,
-        totalBookings,
-        todayBookings,
-        totalRevenue: totalRevenue[0]?.total || 0,
-        todayRevenue: todayRevenue[0]?.total || 0,
+        totalBookings: totalBookings + allDummy.length,
+        todayBookings: todayBookings + allDummy.length,
+        totalRevenue: (totalRevenue[0]?.total || 0) + dummyRevenue,
+        todayRevenue: (todayRevenue[0]?.total || 0) + dummyRevenue,
         activeShowtimes
       },
       recentBookings,

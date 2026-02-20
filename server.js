@@ -23,7 +23,7 @@ app.use(cors({
   credentials: true
 }));
 
-// Stripe webhook needs raw body — must be mounted BEFORE express.json()
+// Razorpay webhook needs raw body — must be mounted BEFORE express.json()
 app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 
 // Body parsing middleware

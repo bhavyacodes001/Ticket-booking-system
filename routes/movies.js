@@ -200,14 +200,14 @@ router.get('/:id', async (req, res) => {
 // @access  Private (Admin)
 router.post('/', auth, adminAuth, [
   body('title').trim().isLength({ min: 1 }).withMessage('Title is required'),
-  body('description').trim().isLength({ min: 10 }).withMessage('Description must be at least 10 characters'),
-  body('genre').isArray({ min: 1 }).withMessage('At least one genre is required'),
-  body('director').trim().isLength({ min: 1 }).withMessage('Director is required'),
+  body('description').optional({ checkFalsy: true }).trim(),
+  body('genre').optional().isArray({ min: 1 }).withMessage('At least one genre is required'),
+  body('director').optional({ checkFalsy: true }).trim(),
   body('releaseDate').isISO8601().withMessage('Valid release date is required'),
-  body('duration').isInt({ min: 1 }).withMessage('Duration must be a positive integer'),
-  body('rating').isIn(['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR']).withMessage('Invalid rating'),
-  body('poster').isURL().withMessage('Valid poster URL is required'),
-  body('basePrice').isFloat({ min: 0 }).withMessage('Base price must be a positive number')
+  body('duration').optional().isInt({ min: 1 }).withMessage('Duration must be a positive integer'),
+  body('rating').optional({ checkFalsy: true }).trim(),
+  body('poster').optional({ checkFalsy: true }).isURL().withMessage('Valid poster URL is required'),
+  body('basePrice').optional().isFloat({ min: 0 }).withMessage('Base price must be a positive number')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
